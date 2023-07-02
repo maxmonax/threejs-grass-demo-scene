@@ -1,0 +1,38 @@
+@keyframes ldio-e3pxajec6hs {
+    0% { background: #1b75be }
+    12.5% { background: #1b75be }
+    12.625% { background: #0051a2 }
+    100% { background: #0051a2 }
+}
+
+.loader {
+    /* width: 200px; */
+    width: 100%;
+    height: 100%;
+    display: inline-block;
+    overflow: hidden;
+    background: #222222;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+
+}
+
+.loader-cubes {
+    position: relative;
+    transform: translateZ(0) scale(1);
+    backface-visibility: hidden;
+    transform-origin: 0 0;
+    /* see note above */
+    left: -100px;
+    top: -100px;
+}
+
+.loader-cubes div {
+    position: absolute;
+    width: 50px;
+    height: 50px;
+    background: #0051a2;
+    animation: ldio-e3pxajec6hs 1s linear infinite;
+    box-sizing: content-box;
+}

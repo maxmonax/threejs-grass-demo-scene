@@ -1,0 +1,39 @@
+* {
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  overflow: hidden;
+}
+
+body {
+  overflow: hidden;
+  background-color: #111111;
+  padding: 0;
+  margin: 0;
+  border: none;
+  font-family: 'Segoe UI', sans-serif;
+}
+
+body, html { 
+  width: 100%;
+  height: 100%;
+}
+
+#game {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+#game-hud {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  position: absolute;
+}
