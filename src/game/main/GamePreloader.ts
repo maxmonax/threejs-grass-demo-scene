@@ -60,7 +60,7 @@ export class GamePreloader {
                 file: texturesPath + item.file
             });
         }
-
+        
     }
 
     private onLoadProgress(aProgressPercent: number) {

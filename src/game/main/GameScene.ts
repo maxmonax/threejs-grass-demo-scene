@@ -13,6 +13,13 @@ import grassFragment from '../shaders/grass/frag.glsl';
 import { groundVertexPrefix } from "../shaders/ground/vertPrefix";
 import { InputMng } from "../../utils/input/InputMng";
 import { DebugGui } from "../debug/DebugGui";
+import { MyMath } from "../../utils/MyMath";
+import { PersFactory } from "../personage/PersFactory";
+import { Personage } from "../personage/Personage";
+import { PersonageController } from "../personage/PersonageController";
+import { Config } from "../data/Config";
+import { ThreejsUtils } from "../../utils/threejs/ThreejsUtils";
+import { Settings } from "../data/Settings";
 
 // Based on:
 // "Realistic real-time grass rendering" by Eddie Lee, 2010
@@ -54,7 +61,7 @@ if (!DeviceInfo.getInstance().desktop) {
 
 //Sun
 //Height over horizon in range [0, PI/2.0]
-var elevation = Math.PI / 6;
+var elevation = Math.PI / 8;
 //Rotation around Y axis in range [0, 2*PI]
 var azimuth = 0.4;
 
@@ -109,33 +116,42 @@ let quaternion0 = new THREE.Quaternion();
 let quaternion1 = new THREE.Quaternion();
 let x, y, z, w, angle, sinAngle, rotationAxis;
 
-var viewDirection = new THREE.Vector3();
-var upVector = new THREE.Vector3(0, 1, 0);
+let viewDirection = new THREE.Vector3();
+let upVector = new THREE.Vector3(0, 1, 0);
 
-var forward = false;
-var backward = false;
-var left = false;
-var right = false;
+let forward = false;
+let backward = false;
+let left = false;
+let right = false;
+let isShift = false;
 
 var time = 0;
 
+let helper;
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+
 export class GameScene extends BasicScene {
+    private cameraTarget: THREE.Vector3;
+    private currPers: Personage;
+    private personageController: PersonageController;
+    private colliders: THREE.Object3D[] = [];
 
     protected initScenes() {
         backgroundScene = new THREE.Scene();
         scene = new THREE.Scene();
-
-        // Light for ground plane
-        let ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
-        scene.add(ambientLight);
     }
 
     protected initCamera() {
+
+        this.cameraTarget = new THREE.Vector3();
+
         camera = new THREE.PerspectiveCamera(FOV, window.innerWidth / window.innerHeight, 1, 20000);
-        camera.position.set(-30, 5, 30);
+        camera.position.set(-14, 8, 28);
         camera.lookAt(new THREE.Vector3(0, 0, 0));
         scene.add(camera);
-        backgroundScene.add(camera);
+        // backgroundScene.add(camera);
+
     }
 
     protected initRender() {
@@ -159,14 +175,14 @@ export class GameScene extends BasicScene {
 
     init(aDomCanvasParent: HTMLElement) {
         super.init();
-        this.initCamera();
         this.initOrbit(aDomCanvasParent);
         this.initTextures();
         this.initSky();
         this.initGround();
         this.initGrass();
         this.initKeyboard();
-        this.initDebug();
+        // this.initPersonage();
+        // if (Settings.isDebugMode) this.initDebug();
     }
 
     // OrbitControls.js for camera manipulation
@@ -174,12 +190,20 @@ export class GameScene extends BasicScene {
         controls = new OrbitControls(camera, domCanvasParent);
         controls.autoRotate = rotate;
         controls.autoRotateSpeed = 1.0;
-        controls.maxDistance = 65.0;
-        if (!DeviceInfo.getInstance().desktop) controls.maxDistance = 35.0;
-        controls.minDistance = 5.0;
-        //Disable keys to stop arrow keys from moving the camera
-        // controls.enableKeys = false;
+        
+        controls.minDistance = 5;
+        controls.maxDistance = 40;
+        if (!DeviceInfo.getInstance().desktop) controls.maxDistance = 30.0;
+
+        // controls.rotateSpeed = 0.4;
+        controls.enableDamping = true;
+        // controls.dampingFactor = 0.1;
         controls.enablePan = false;
+
+        // controls.minPolarAngle = MyMath.toRadian(30);
+        controls.maxPolarAngle = Math.PI - MyMath.toRadian(90);
+        // controls.target = aParams.cameraTarget;
+
         controls.update();
     }
 
@@ -193,6 +217,18 @@ export class GameScene extends BasicScene {
     }
 
     private initSky() {
+
+        // Light for ground plane
+        let ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
+        scene.add(ambientLight);
+
+        let dirLight = new THREE.DirectionalLight(0xffffff, .4);
+        dirLight.position.set(Math.sin(azimuth) * 20, Math.sin(elevation) * 20, -Math.cos(azimuth) * 20);
+        scene.add(dirLight);
+
+        // let dirLightHepler = new THREE.DirectionalLightHelper(dirLight, 6);
+        // scene.add(dirLightHepler);
+
         //https://discourse.threejs.org/t/how-do-i-use-my-own-custom-shader-as-a-scene-background/13598/2
         backgroundMaterial = new THREE.ShaderMaterial({
             uniforms: {
@@ -219,10 +255,10 @@ export class GameScene extends BasicScene {
         (groundBaseGeometry as any).verticesNeedUpdate = true;
 
         groundGeometry = new THREE.PlaneGeometry(width, width, resolution, resolution);
-        groundGeometry.setAttribute('basePosition', groundBaseGeometry.getAttribute("position"));
+        groundGeometry.setAttribute('basePosition', groundBaseGeometry.getAttribute('position'));
         groundGeometry.lookAt(new THREE.Vector3(0, 1, 0));
         (groundBaseGeometry as any).verticesNeedUpdate = true;
-        groundMaterial = new THREE.MeshPhongMaterial({
+        groundMaterial = new THREE.MeshLambertMaterial({
             color: new THREE.Color("rgb(10%, 25%, 2%)"),
             side: THREE.DoubleSide
         });
@@ -259,6 +295,8 @@ export class GameScene extends BasicScene {
 
         ground.geometry.computeVertexNormals();
         scene.add(ground);
+
+        this.colliders.push(ground);
 
     }
 
@@ -408,6 +446,37 @@ export class GameScene extends BasicScene {
         });
         input.onKeyDownSignal.add(this.onKeyDown, this);
         input.onKeyUpSignal.add(this.onKeyUp, this);
+
+    }
+
+    private initPersonage() {
+
+        let startPos = {
+            x: 0, y: 0, z: 0
+        };
+        // this.currPers = PersFactory.createRandomMCPPers(startPos);
+        this.currPers = PersFactory.createShibainu(startPos);
+
+        this.personageController = new PersonageController({
+            scene: scene,
+            camera: camera,
+            cameraTarget: this.cameraTarget,
+            pers: this.currPers,
+
+            orbitParams: {
+                camera: camera,
+                cameraTarget: this.cameraTarget,
+                domElement: this._params.canvasParent,
+                minDist: Config.METER_SIZE * 4,
+                maxDist: Config.METER_SIZE * 6
+            },
+
+            colliders: this.colliders
+
+        });
+
+        scene.add(this.currPers);
+
     }
 
     private initDebug() {
@@ -440,47 +509,6 @@ export class GameScene extends BasicScene {
         return sV;
     }
 
-    private moveUpdate(dt: number) {
-
-        camera.getWorldDirection(viewDirection);
-        length = Math.sqrt(viewDirection.x * viewDirection.x + viewDirection.z * viewDirection.z);
-        viewDirection.x /= length;
-        viewDirection.z /= length;
-        if (forward) {
-            pos.x += dt * speed * viewDirection.x;
-            pos.y += dt * speed * viewDirection.z;
-        }
-        if (backward) {
-            pos.x -= dt * speed * viewDirection.x;
-            pos.y -= dt * speed * viewDirection.z;
-        }
-        if (left) {
-            var rightVector = this.cross(upVector, viewDirection);
-            pos.x += dt * speed * rightVector.x;
-            pos.y += dt * speed * rightVector.z;
-        }
-        if (right) {
-            var rightVector = this.cross(upVector, viewDirection);
-            pos.x -= dt * speed * rightVector.x;
-            pos.y -= dt * speed * rightVector.z;
-        }
-
-        if (groundShader) {
-            groundShader.uniforms.posX.value = pos.x;
-            groundShader.uniforms.posZ.value = pos.y;
-            groundShader.uniforms.radius.value = radius;
-        }
-        grassMaterial.uniforms.posX.value = pos.x;
-        grassMaterial.uniforms.posZ.value = pos.y;
-        grassMaterial.uniforms.radius.value = radius;
-    }
-
-    private updateSunPosition() {
-        var sunDirection = new THREE.Vector3(Math.sin(azimuth), Math.sin(elevation), -Math.cos(azimuth));
-        grassMaterial.uniforms.sunDirection.value = sunDirection;
-        backgroundMaterial.uniforms.sunDirection.value = sunDirection;
-    }
-
     private onKeyDown(aCode: string, aKey: string) {
         switch (aCode) {
             case 'KeyW':
@@ -499,6 +527,14 @@ export class GameScene extends BasicScene {
             case 'ArrowRight':
                 right = true;
                 break;
+            case 'ShiftLeft':
+            case 'ShiftRight':
+                isShift = true;
+                break;
+            default:
+                this.logDebug(`onKeyDown: ${aCode}`);
+                break;
+                
         }
     }
 
@@ -520,16 +556,11 @@ export class GameScene extends BasicScene {
             case 'ArrowRight':
                 right = false;
                 break;
+            case 'ShiftLeft':
+            case 'ShiftRight':
+                isShift = false;
+                break;
         }
-    }
-
-    private getPositionByHighMap(p: { x, y }): { y: number } {
-        let tx = p.x / 800;
-        let ty = p.y / 800;
-        // return 8 * (2 * texture2D(noiseTexture, p / 800.0).r - 1.0);
-        return {
-            y: 0
-        };
     }
 
     onWindowResize() {
@@ -541,6 +572,76 @@ export class GameScene extends BasicScene {
         backgroundMaterial.uniforms.fov.value = FOV;
     }
 
+    private getPositionByHighMap(p: { x, y }): { y: number } {
+        let tx = p.x + 512 / 2;
+        let ty = p.y + 512 / 2;
+        // return 8 * (2 * texture2D(noiseTexture, p / 800.0).r - 1.0);
+
+        let imagedata = ThreejsUtils.getImageData(noiseTexture.image);
+        let px = {
+            x: Math.round(tx),
+            y: Math.round(ty)
+        };
+
+        while (px.x > imagedata.width) px.x -= imagedata.width;
+        while (px.x < 0) px.x += imagedata.width;
+        while (px.y > imagedata.height) px.y -= imagedata.height;
+        while (px.y < 0) px.y += imagedata.height;
+
+        let color = ThreejsUtils.getPixel(imagedata, px.x, px.y);
+        let res = 8 * (2 * color.r / 255 - 1.0);
+        let heightFactor = res;
+
+        return {
+            y: heightFactor
+        };
+
+    }
+
+    private updateSunPosition() {
+        var sunDirection = new THREE.Vector3(Math.sin(azimuth), Math.sin(elevation), -Math.cos(azimuth));
+        grassMaterial.uniforms.sunDirection.value = sunDirection;
+        backgroundMaterial.uniforms.sunDirection.value = sunDirection;
+    }
+
+    private moveUpdate(dt: number) {
+
+        let spd = speed;
+        if (isShift) spd *= 3;
+        camera.getWorldDirection(viewDirection);
+        // this.currPers.getWorldDirection(viewDirection);
+        length = Math.sqrt(viewDirection.x * viewDirection.x + viewDirection.z * viewDirection.z);
+        viewDirection.x /= length;
+        viewDirection.z /= length;
+        if (forward) {
+            pos.x += dt * spd * viewDirection.x;
+            pos.y += dt * spd * viewDirection.z;
+        }
+        if (backward) {
+            pos.x -= dt * spd * viewDirection.x;
+            pos.y -= dt * spd * viewDirection.z;
+        }
+        if (left) {
+            var rightVector = this.cross(upVector, viewDirection);
+            pos.x += dt * spd * rightVector.x;
+            pos.y += dt * spd * rightVector.z;
+        }
+        if (right) {
+            var rightVector = this.cross(upVector, viewDirection);
+            pos.x -= dt * spd * rightVector.x;
+            pos.y -= dt * spd * rightVector.z;
+        }
+
+        if (groundShader) {
+            groundShader.uniforms.posX.value = pos.x;
+            groundShader.uniforms.posZ.value = pos.y;
+            groundShader.uniforms.radius.value = radius;
+        }
+        grassMaterial.uniforms.posX.value = pos.x;
+        grassMaterial.uniforms.posZ.value = pos.y;
+        grassMaterial.uniforms.radius.value = radius;
+    }
+
     render() {
         renderer.clear();
         renderer.render(backgroundScene, camera);
@@ -550,9 +651,12 @@ export class GameScene extends BasicScene {
     update(dt: number) {
         time += dt * 2;
         grassMaterial.uniforms.time.value = time;
-        if (rotate) controls.update();
+        this.currPers?.update(dt);
+        this.personageController?.update(dt);
+        controls?.update();
         this.moveUpdate(dt * 3);
         // updateSunPosition();
+
     }
 
 }

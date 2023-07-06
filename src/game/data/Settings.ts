@@ -14,4 +14,6 @@ export class Settings {
     // game
     static readonly METER_SIZE = 20;
 
+    static heightFactor = 1;
+
 };

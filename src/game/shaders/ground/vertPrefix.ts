@@ -24,12 +24,12 @@ export const groundVertexPrefix = `
 
     //Get the position of the ground from the [x,z] coordinates, the sphere and the noise height field
     vec3 getPosition(vec3 pos, float epsX, float epsZ){
-    vec3 temp;
-    temp.x = pos.x + epsX;
-    temp.z = pos.z + epsZ;
-    temp.y = max(0.0, placeOnSphere(temp)) - radius;
-    temp.y += getYPosition(vec2(basePosition.x+epsX+delta*floor(posX), basePosition.z+epsZ+delta*floor(posZ)));
-    return temp;
+        vec3 temp;
+        temp.x = pos.x + epsX;
+        temp.z = pos.z + epsZ;
+        temp.y = max(0.0, placeOnSphere(temp)) - radius;
+        temp.y += getYPosition(vec2(basePosition.x+epsX+delta*floor(posX), basePosition.z+epsZ+delta*floor(posZ)));
+        return temp;
     }
 
     //Find the normal at pos as the cross product of the central-differences in x and z directions

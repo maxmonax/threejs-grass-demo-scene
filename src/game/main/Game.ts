@@ -57,7 +57,7 @@ export class Game implements ILogger {
 
     private initDebugGui() {
         if (Settings.isDebugMode) {
-            DebugGui.getInstance();
+            // DebugGui.getInstance();
         }
     }
 
